@@ -1,7 +1,7 @@
 import html
 import re
 from docutils.core import publish_parts
-from pyramid.httpexceptions import HTTPFound, HTTPNotFound
+from pyramid.httpexceptions import HTTPFound, HTTPNotFound, HTTPForbidden
 from pyramid.view import view_config
 
 from ..models import Page, User
@@ -41,6 +41,10 @@ def view_page(request):
 def edit_page(request):
     pagename = request.matchdict['pagename']
     page = request.dbsession.query(Page).filter_by(name=pagename).one()
+    user = request.user
+
+    if user is None or (user.role != 'editor' and page.creator != user):
+        raise HTTPForbidden
 
     if 'form.submitted' in request.params:
         page.data = request.params['body']
@@ -56,6 +60,10 @@ def edit_page(request):
 @view_config(route_name='add_page', renderer='../templates/edit.jinja2')
 def add_page(request):
     pagename = request.matchdict['pagename']
+    user = request.user
+
+    if user is None or user.role not in ('editor', 'basic'):
+        raise HTTPForbidden
 
     if request.dbsession.query(Page).filter_by(name=pagename).count() > 0:
         next_url = request.route_url('edit_page', pagename=pagename)
@@ -64,7 +72,7 @@ def add_page(request):
     if 'form.submitted' in request.params:
         body = request.params['body']
         page = Page(name=pagename, data=body)
-        page.creator = request.dbsession.query(User).filter_by(name='editor').one()
+        page.creator = request.user
         request.dbsession.add(page)
         next_url = request.route_url('add_page', pagename=pagename)
         return HTTPFound(location=next_url)
